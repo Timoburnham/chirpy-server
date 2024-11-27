@@ -1,10 +1,13 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 	"sync/atomic"
+	
+	"regexp"
 )
 
 type apiConfig struct {
@@ -40,6 +43,66 @@ func healthzHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("OK"))
 }
 
+func validateChirpHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(405)
+		data, err := json.Marshal(map[string]string{"error": "Something went wrong"})
+		if err != nil {
+			w.WriteHeader(500)
+			return
+		}
+		w.Write(data)
+		return
+	}
+
+	type Chirp struct {
+		Body string `json:"body"`
+	}
+
+	var chirp Chirp
+	err := json.NewDecoder(r.Body).Decode(&chirp)
+	if err != nil {
+		w.WriteHeader(400)
+		data, _ := json.Marshal(map[string]string{"error": "Invalid JSON"})
+		w.Write(data)
+		return
+	}
+	if len(chirp.Body) > 140 {
+		w.WriteHeader(400)
+		data, _ := json.Marshal(map[string]string{"error": "Chirp is too long"})
+		w.Write(data)
+		return
+	}
+	
+	
+	
+	
+	cleanedBody := cleanChirp(chirp.Body)
+	
+	response, _ := json.Marshal(map[string]string{"cleaned_body": cleanedBody})
+	w.WriteHeader(200)
+	w.Write(response)
+}
+
+func cleanChirp(body string) string {
+    
+    profaneWords := []string{"kerfuffle", "sharbert", "fornax"}
+    
+    
+    for _, word := range profaneWords {
+        
+        re := regexp.MustCompile(`(?i)\b` + word + `\b`)
+        
+        
+        body = re.ReplaceAllStringFunc(body, func(s string) string {
+            return "****"
+        })
+    }
+    
+    return body
+}
+
 func main() {
 
 	apiCfg := &apiConfig{}
@@ -49,6 +112,7 @@ func main() {
 	mux.HandleFunc("GET /api/healthz", healthzHandler)
 	mux.HandleFunc("GET /admin/metrics", apiCfg.metricsHandler)
 	mux.HandleFunc("POST /admin/reset", apiCfg.resetHandler)
+	mux.HandleFunc("/api/validate_chirp", validateChirpHandler)
 
 	fileServer := http.FileServer(http.Dir("."))
 	mux.Handle("/app/", apiCfg.middlewareMetricsInc(http.StripPrefix("/app", fileServer)))
